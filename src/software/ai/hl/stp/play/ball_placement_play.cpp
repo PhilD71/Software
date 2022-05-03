@@ -26,7 +26,7 @@ void BallPlacementPlay::getNextTactics(TacticCoroutine::push_type &yield,
                                  world.field().friendlyDefenseArea().posXNegYCorner();
     Point waiting_line_start_point =
         world.field().friendlyDefenseArea().posXNegYCorner() +
-        Vector(ROBOT_MAX_RADIUS_METERS * 2, 0);
+        Vector(ROBOT_MAX_RADIUS_METERS * 2, 0);         //TODO: make it * 3 to provide extra buffer
     for (unsigned int i = 0; i < move_tactics.size(); i++)
     {
         Point waiting_destination =
