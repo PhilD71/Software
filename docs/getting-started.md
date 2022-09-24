@@ -81,7 +81,7 @@ We have several setup scripts to help you easily install the necessary dependenc
 For those who prefer working on C/C++ with an IDE, we provide two options: CLion for an integrated experience and VSCode for a more lightweight setup. Both support our build system `bazel`.
 CLion is the most full-featured IDE, with code completion, code navigation, and integrated building, testing, and debugging.
 
-### Getting your Student License
+##### Getting your Student License
 
 CLion is free for students, and you can use your UBC alumni email address to create a student account. If you already have a student account with JetBrains, you can skip this step.
 
