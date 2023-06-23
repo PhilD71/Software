@@ -95,6 +95,17 @@ Thunderloop::Thunderloop(const RobotConstants_t& robot_constants, const int loop
               << ", and NETWORK INTERFACE: " << network_interface_;
     LOG(INFO)
         << "THUNDERLOOP: to update Thunderloop configuration, change REDIS store and restart Thunderloop";
+    motor_service_->runOpenLoopCalibrationRoutine(0,300);
+    LOG(INFO) << "Collected Open Loop Data for Motor 0";
+    motor_service_->runOpenLoopCalibrationRoutine(1,300);
+    LOG(INFO) << "Collected Open Loop Data for Motor 1";
+    motor_service_->runOpenLoopCalibrationRoutine(2,300);
+    LOG(INFO) << "Collected Open Loop Data for Motor 2";
+    motor_service_->runOpenLoopCalibrationRoutine(3,300);
+    LOG(INFO) << "Collected Open Loop Data for Motor 3";
+    motor_service_->runOpenLoopCalibrationRoutine(4,300);
+    LOG(INFO) << "Collected Open Loop Data for Motor 4";
+    LOG(FATAL) <<"Finished taking samples";
 }
 
 Thunderloop::~Thunderloop() {}

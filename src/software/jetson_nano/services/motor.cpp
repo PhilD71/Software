@@ -200,7 +200,7 @@ void MotorService::setup()
 
     checkEncoderConnections();
 
-    // calibrate the encoders
+//     calibrate the encoders
     for (uint8_t motor = 0; motor < NUM_DRIVE_MOTORS; motor++)
     {
         startEncoderCalibration(motor);
