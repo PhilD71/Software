@@ -369,6 +369,7 @@ def field_test_runner():
         multicast_channel=getRobotMulticastChannel(0),
         interface=args.interface,
         disable_estop=False,
+        estop_path=args.estop_path
     ) as rc_friendly:
         with Gamecontroller(
             supress_logs=(not args.show_gamecontroller_logs), ci_mode=True
