@@ -59,3 +59,22 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+
+py_test(
+    name = "square_test",
+    srcs = [
+        "square_test.py",
+    ],
+    # TODO (#2619) Remove tag to run in parallel
+    tags = [
+        "exclusive",
+    ],
+    deps = [
+        "//software/field_tests:field_test_fixture",
+        "//software/simulated_tests:simulated_test_fixture",
+        "//software/simulated_tests:tbots_test_runner",
+        "//software/simulated_tests:validation",
+        requirement("pytest"),
+    ],
+)

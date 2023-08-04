@@ -3,6 +3,7 @@ import time
 import os
 import threading
 
+import math
 import pytest
 import software.python_bindings as tbots
 import argparse
@@ -77,15 +78,21 @@ class FieldTestRunner(TbotsTestRunner):
         )
         self.publish_validation_protos = publish_validation_protos
         self.is_yellow_friendly = is_yellow_friendly
+        self.friendly_proto_unix_io = blue_full_system_proto_unix_io
+
+        if is_yellow_friendly:
+            self.friendly_proto_unix_io = yellow_full_system_proto_unix_io
 
         logger.info("determining robots on field")
         # survey field for available robot ids
         try:
             world = self.world_buffer.get(block=True, timeout=WORLD_BUFFER_TIMEOUT)
             self.initial_world = world
+            # print(world)
             self.friendly_robot_ids_field = [
                 robot.id for robot in world.friendly_team.team_robots
             ]
+            # print(world.friendly_team)
 
             logger.info(f"friendly team ids {self.friendly_robot_ids_field}")
 
@@ -109,6 +116,206 @@ class FieldTestRunner(TbotsTestRunner):
             team=team,
             final_ball_placement_point=final_ball_placement_point,
         )
+
+    def set_worldState(self, worldstate: WorldState):
+        """ Sets a world state on the field by moving robots and the ball to the given positions
+
+        Args:
+            worldstate (WorldState): Proto which contains robot and ball positions expected on the field
+
+        Raises:
+            Exception: On failing to verify that the expected position was set
+        """
+
+        self.__validateMatchingRobotIds(worldstate)
+        # self.__setBallState(worldstate)
+        self.__setRobotState(worldstate)
+
+    def __validateWorldState(self, eventually_validation_set, timeout):
+        """Runs any validation function in the eventually set on the current world. If no world receives, raises
+        empty queue error
+
+        :param eventually_validation_set: the eventually validation functions to run against our world
+        :param timeout: world buffer timeout
+        """
+        timeout_time = time.time() + timeout
+
+        while time.time() < timeout_time:
+            try:
+
+                current_world = self.world_buffer.get(
+                    block=True, timeout=WORLD_BUFFER_TIMEOUT
+                )
+
+                (
+                    eventually_validation_status,
+                    always_validation_status,
+                ) = validation.run_validation_sequence_sets(
+                    world=current_world,
+                    eventually_validation_sequence_set=[eventually_validation_set],
+                    always_validation_sequence_set=[[]],
+                )
+
+                if not validation.contains_failure(eventually_validation_status):
+                    break
+
+            except queue.Empty as empty:
+                logger.warning("failed to obtain world")
+
+        validation.check_validation(eventually_validation_status)
+
+    def __validateMatchingRobotIds(self, worldstate: WorldState):
+        """Checks whether the robots to be used in this field test matches up with the robots we see on the field
+
+        Args:
+            worldstate (worldState Proto): The worldstate containing the robots to be used in the test
+
+        Raises:
+            Exception: On there existing a robot to be used in the test but is not on the field
+        """
+        logger.info("testing ids matching")
+
+        # validate that ids match with test setup
+        ids_present = True
+
+        if self.is_yellow_friendly:
+            robots = worldstate.yellow_robots
+        else:
+            robots = worldstate.blue_robots
+
+        for robot_id in robots.keys():
+            if robot_id not in self.friendly_robot_ids_field:
+                logger.warning(
+                    f"robot {robot_id} missing from field"
+                )
+                ids_present = False
+
+        if not ids_present:
+            raise Exception("robotIds do not match")
+
+    def __setBallState(self, worldstate: WorldState):
+        """Commands a robot to move the ball to the given position on the field
+
+        Args:
+            worldstate (worldState Proto): proto that contains ball position
+
+        Raises:
+            Exception: On failing to move the ball to the correct position
+        """
+
+        logger.info("starting ball placement")
+
+        # ball placement
+        if worldstate.HasField("ball_state"):
+
+            ball_position = tbots.createPoint(worldstate.ball_state.global_position)
+
+            dribble_tactic = DribbleTactic(
+                dribble_destination=worldstate.ball_state.global_position,
+                allow_excessive_dribbling=True,
+            )
+            move_ball_tactics = AssignedTacticPlayControlParams()
+            move_ball_tactics.assigned_tactics[
+                self.friendly_robot_ids_field[0]
+            ].dribble.CopyFrom(dribble_tactic)
+
+            self.friendly_proto_unix_io.send_proto(
+                AssignedTacticPlayControlParams, move_ball_tactics
+            )
+
+            # validate completion
+            ball_placement_timout_s = 10
+            ball_placement_validation_function = BallEventuallyStopsInRegion(
+                regions=[tbots.Circle(ball_position, 0.1)]
+            )
+
+            try:
+                self.__validateWorldState(
+                    ball_placement_validation_function, ball_placement_timout_s
+                )
+            except:
+                raise Exception(
+                    "ball placement by blue robot {} to position {} failed".format(
+                        self.friendly_robot_ids_field[0], ball_position
+                    )
+                )
+
+    def __setRobotState(self, worldstate: WorldState):
+        """sets friendly and enemy robots to the given position on the field
+
+        Args:
+            worldstate (worldState Proto): proto that contains robot positions
+
+        Raises:
+            Exception: On failing to set robot positions
+        """
+        logger.info("moving robots to start position")
+
+
+        # creating movement tactics and associated validation functions
+        initial_position_tactics = AssignedTacticPlayControlParams()
+
+        robot_positions_validation_functions = []
+
+        if self.is_yellow_friendly:
+            robots = worldstate.yellow_robots
+            team_color = Team.YELLOW
+        else:
+            robots = worldstate.blue_robots
+            team_color = Team.BLUE
+
+        # print(robots,flush=True)
+
+        for robot_id in robots.keys():
+            robotState = robots[robot_id]
+            move_tactic = MoveTactic()
+            move_tactic.dribbler_mode=DribblerMode.OFF
+            move_tactic.final_orientation.CopyFrom(Angle(radians=-math.pi/2))
+            move_tactic.ball_collision_type=BallCollisionType.AVOID
+            move_tactic.auto_chip_or_kick.CopyFrom(AutoChipOrKick(autokick_speed_m_per_s=0.0))
+            move_tactic.max_allowed_speed_mode=MaxAllowedSpeedMode.PHYSICAL_LIMIT
+            move_tactic.target_spin_rev_per_s=0.0
+            move_tactic.destination.CopyFrom(robotState.global_position)
+            move_tactic.final_orientation.CopyFrom(
+                robotState.global_orientation
+                if robotState.HasField("global_orientation")
+                else Angle(radians=0.0)
+            )
+            move_tactic.final_speed = 0.0
+            initial_position_tactics.assigned_tactics[
+                robot_id
+            ].move.CopyFrom(move_tactic)
+            print(move_tactic)
+
+            # create validation
+            expected_final_position = tbots.Point(
+                robotState.global_position.x_meters,
+                robotState.global_position.y_meters,
+            )
+
+            validation_func = RobotEventuallyEntersRegion(
+                # robot_id=robot_id,
+                # team=team_color,
+                regions=[tbots.Circle(expected_final_position, 0.1)],
+            )
+            robot_positions_validation_functions.append(validation_func)
+
+
+        # print("---------------TACTICS------------",flush=True)
+        # print(initial_position_tactics)
+
+        self.friendly_proto_unix_io.send_proto(
+            AssignedTacticPlayControlParams, initial_position_tactics,
+        )
+
+        # validate completion
+        movement_timout_s = 10
+        try:
+            self.__validateWorldState(
+                robot_positions_validation_functions, movement_timout_s
+            )
+        except:
+            raise Exception("robot positioning not set")
 
     def time_provider(self):
         """Provide the current time in seconds since the epoch"""
@@ -317,7 +524,7 @@ def load_command_line_arguments():
         "--estop_path",
         action="store",
         type=str,
-        default="/dev/ttyACM0",
+        default="/dev/ttyUSB0",
         help="Path to the Estop",
     )
 
@@ -377,6 +584,7 @@ def field_test_runner():
         multicast_channel=getRobotMulticastChannel(args.channel),
         interface=args.interface,
         disable_estop=False,
+        estop_path=args.estop_path
     ) as rc_friendly:
         with Gamecontroller(
             supress_logs=(not args.show_gamecontroller_logs), ci_mode=True
