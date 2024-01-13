@@ -4,38 +4,26 @@ import os
 import threading
 
 import pytest
-import software.python_bindings as tbots
 import argparse
 from proto.import_all_protos import *
-from proto.ssl_gc_common_pb2 import Team
-from pyqtgraph.Qt import QtCore, QtGui
-
-from software.networking.threaded_unix_sender import ThreadedUnixSender
-from software.simulated_tests.robot_enters_region import (
-    RobotEntersRegion,
-    RobotEventuallyEntersRegion,
-)
 
 from software.simulated_tests import validation
+from software.thunderscope.constants import EstopMode
 from software.thunderscope.thunderscope import Thunderscope
 from software.thunderscope.proto_unix_io import ProtoUnixIO
 from software.py_constants import MILLISECONDS_PER_SECOND
-from software.thunderscope.binary_context_managers import (
-    FullSystem,
-    Simulator,
-    Gamecontroller,
-)
+from software.thunderscope.binary_context_managers.full_system import FullSystem
+from software.thunderscope.binary_context_managers.simulator import Simulator
+from software.thunderscope.binary_context_managers.game_controller import Gamecontroller
 from software.thunderscope.replay.proto_logger import ProtoLogger
-from proto.message_translation.tbots_protobuf import create_world_state
-
 from software.logger.logger import createLogger
 
 
 from software.thunderscope.thunderscope_config import configure_field_test_view
 from software.simulated_tests.tbots_test_runner import TbotsTestRunner
 from software.thunderscope.robot_communication import RobotCommunication
+from software.thunderscope.estop_helpers import get_estop_config
 from software.py_constants import *
-from software.simulated_tests.ball_stops_in_region import BallEventuallyStopsInRegion
 
 logger = createLogger(__name__)
 
@@ -227,9 +215,6 @@ def load_command_line_arguments():
     """
     parser = argparse.ArgumentParser(description="Run simulated or field pytests")
     parser.add_argument(
-        "--enable_thunderscope", action="store_true", help="enable thunderscope"
-    )
-    parser.add_argument(
         "--simulator_runtime_dir",
         type=str,
         help="simulator runtime directory",
@@ -314,10 +299,6 @@ def load_command_line_arguments():
     )
 
     parser.add_argument(
-        "--estop_path", action="store", type=str, help="Path to the Estop",
-    )
-
-    parser.add_argument(
         "--estop_baudrate",
         action="store",
         type=int,
@@ -340,7 +321,7 @@ def load_command_line_arguments():
         help="Allows the use of the spacebar as an estop instead of a physical one",
     )
     estop_group.add_argument(
-        "--disable_estop",
+        "--disable_communication",
         action="store_true",
         default=False,
         help="Disables checking for estop plugged in (ONLY USE FOR LOCAL TESTING)",
@@ -366,7 +347,6 @@ def field_test_runner():
     current_test = current_test.replace("[", "-")
 
     test_name = current_test.split("-")[0]
-    tscope = None
     debug_full_sys = args.debug_blue_full_system
     runtime_dir = f"{args.blue_full_system_runtime_dir}/test/{test_name}"
     friendly_proto_unix_io = blue_full_system_proto_unix_io
@@ -376,11 +356,9 @@ def field_test_runner():
         runtime_dir = f"{args.yellow_full_system_runtime_dir}/test/{test_name}"
         friendly_proto_unix_io = yellow_full_system_proto_unix_io
 
-    estop_mode = EstopMode.PHYSICAL_ESTOP
-    if args.keyboard_estop:
-        estop_mode = EstopMode.KEYBOARD_ESTOP
-    if args.disable_estop:
-        estop_mode = EstopMode.DISABLE_ESTOP
+    estop_mode, estop_path = get_estop_config(
+        args.keyboard_estop, args.disable_communication
+    )
 
     # Launch all binaries
     with FullSystem(
@@ -393,7 +371,7 @@ def field_test_runner():
         multicast_channel=getRobotMulticastChannel(args.channel),
         interface=args.interface,
         estop_mode=estop_mode,
-        estop_path=args.estop_path,
+        estop_path=estop_path,
     ) as rc_friendly:
         with Gamecontroller(
             supress_logs=(not args.show_gamecontroller_logs), ci_mode=True
@@ -404,18 +382,30 @@ def field_test_runner():
             gamecontroller.setup_proto_unix_io(
                 blue_full_system_proto_unix_io, yellow_full_system_proto_unix_io,
             )
-            # If we want to run thunderscope, inject the proto unix ios
-            # and start the test
-            if args.enable_thunderscope:
-                tscope = Thunderscope(
-                    configure_field_test_view(
-                        simulator_proto_unix_io=simulator_proto_unix_io,
-                        blue_full_system_proto_unix_io=blue_full_system_proto_unix_io,
-                        yellow_full_system_proto_unix_io=yellow_full_system_proto_unix_io,
-                        yellow_is_friendly=args.run_yellow,
-                    ),
-                    layout_path=None,
+            # Inject the proto unix ios into thunderscope and start the test
+            tscope = Thunderscope(
+                configure_field_test_view(
+                    simulator_proto_unix_io=simulator_proto_unix_io,
+                    blue_full_system_proto_unix_io=blue_full_system_proto_unix_io,
+                    yellow_full_system_proto_unix_io=yellow_full_system_proto_unix_io,
+                    yellow_is_friendly=args.run_yellow,
+                ),
+                layout_path=None,
+            )
+
+            # connect the keyboard estop toggle to the key event if needed
+            if estop_mode == EstopMode.KEYBOARD_ESTOP:
+                tscope.keyboard_estop_shortcut.activated.connect(
+                    rc_friendly.toggle_keyboard_estop
                 )
+                # we call this method to enable estop automatically when a field test starts
+                rc_friendly.toggle_keyboard_estop()
+                logger.warning(
+                    "\x1b[31;20m"
+                    + "Keyboard Estop Enabled, robots will start moving automatically when test starts!"
+                    + "\x1b[0m"
+                )
+
             time.sleep(LAUNCH_DELAY_S)
             runner = FieldTestRunner(
                 test_name=current_test,

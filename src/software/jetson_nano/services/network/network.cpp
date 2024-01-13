@@ -19,17 +19,17 @@ NetworkService::NetworkService(const std::string& ip_address,
 }
 
 std::tuple<TbotsProto::PrimitiveSet, TbotsProto::World> NetworkService::poll(
-    const TbotsProto::RobotStatus& robot_status)
+    TbotsProto::RobotStatus& robot_status)
 {
     std::scoped_lock lock{primitive_set_mutex, world_mutex};
+
+    robot_status.mutable_network_status()->set_primitive_packet_loss_percentage(
+        static_cast<unsigned int>(primitive_tracker.getLossRate() * 100));
+    robot_status.mutable_network_status()->set_world_packet_loss_percentage(
+        static_cast<unsigned int>(world_tracker.getLossRate() * 100));
+
     // Rate limit sending of proto based on thunderloop freq
-    if ((robot_status.motor_status().front_left().motor_faults_size() > 0 ||
-         robot_status.motor_status().front_right().motor_faults_size() > 0 ||
-         robot_status.motor_status().back_left().motor_faults_size() > 0 ||
-         robot_status.motor_status().back_right().motor_faults_size() > 0) ||
-        (robot_status.has_power_status() &&
-         robot_status.power_status().breakbeam_tripped() != last_breakbeam_state_sent) ||
-        network_ticks / (thunderloop_ticks + 1.0) <= ROBOT_STATUS_TO_THUNDERLOOP_HZ_RATIO)
+    if (shouldSendNewRobotStatus(robot_status))
     {
         last_breakbeam_state_sent = robot_status.power_status().breakbeam_tripped();
         sender->sendProto(robot_status);
@@ -38,6 +38,26 @@ std::tuple<TbotsProto::PrimitiveSet, TbotsProto::World> NetworkService::poll(
     thunderloop_ticks = (thunderloop_ticks + 1) % CONTROL_LOOP_HZ;
     return std::tuple<TbotsProto::PrimitiveSet, TbotsProto::World>{primitive_set_msg,
                                                                    world_msg};
+}
+
+bool NetworkService::shouldSendNewRobotStatus(
+    const TbotsProto::RobotStatus& robot_status) const
+{
+    bool has_motor_fault =
+        robot_status.motor_status().front_left().motor_faults_size() > 0 ||
+        robot_status.motor_status().front_right().motor_faults_size() > 0 ||
+        robot_status.motor_status().back_left().motor_faults_size() > 0 ||
+        robot_status.motor_status().back_right().motor_faults_size() > 0;
+
+    bool has_breakbeam_status_changed =
+        robot_status.has_power_status() &&
+        robot_status.power_status().breakbeam_tripped() != last_breakbeam_state_sent;
+
+    bool require_heartbeat_status_update = (network_ticks / (thunderloop_ticks + 1.0)) <=
+                                           ROBOT_STATUS_TO_THUNDERLOOP_HZ_RATIO;
+
+    return has_motor_fault || has_breakbeam_status_changed ||
+           require_heartbeat_status_update;
 }
 
 void NetworkService::primitiveSetCallback(TbotsProto::PrimitiveSet input)
@@ -54,8 +74,7 @@ void NetworkService::primitiveSetCallback(TbotsProto::PrimitiveSet input)
     float primitive_set_loss_rate = primitive_tracker.getLossRate();
     if (primitive_set_loss_rate > PROTO_LOSS_WARNING_THRESHOLD)
     {
-        // Log in 5% increments to allow the logs to be merged
-        LOG(WARNING) << "Primitive set loss rate is " << static_cast<int>(primitive_set_loss_rate * 20) * 5
+        LOG(WARNING) << "Primitive set loss rate is " << primitive_set_loss_rate * 100
                      << "%";
     }
 }
@@ -74,7 +93,6 @@ void NetworkService::worldCallback(TbotsProto::World input)
     float world_loss_rate = world_tracker.getLossRate();
     if (world_loss_rate > PROTO_LOSS_WARNING_THRESHOLD)
     {
-        // Log in 5% increments to allow the logs to be merged
-        LOG(WARNING) << "World loss rate is " << static_cast<int>(world_loss_rate * 20) * 5 << "%";
+        LOG(WARNING) << "World loss rate is " << world_loss_rate * 100 << "%";
     }
 }

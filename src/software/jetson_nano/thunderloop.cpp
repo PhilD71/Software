@@ -135,7 +135,6 @@ Thunderloop::~Thunderloop() {}
     struct timespec next_shot;
     struct timespec poll_time;
     struct timespec iteration_time;
-    struct timespec total_iteration_time;
     struct timespec last_primitive_received_time;
     struct timespec last_world_received_time;
     struct timespec current_time;
@@ -165,7 +164,6 @@ Thunderloop::~Thunderloop() {}
     for (;;)
     {
         {
-            ScopedTimespecTimer total_iteration_timer(&total_iteration_time);
             // Wait until next shot
             //
             // Note: CLOCK_MONOTONIC is used over CLOCK_REALTIME since
@@ -263,14 +261,10 @@ Thunderloop::~Thunderloop() {}
                 if (nanoseconds_elapsed_since_last_primitive > PACKET_TIMEOUT_NS)
                 {
                     primitive_executor_.setStopPrimitive();
-
-                    // Log milliseconds since last world received if we are timing out
-                    LOG(WARNING)
-                        << "Primitive timeout, overriding with StopPrimitive - Seconds since last primitive: "
-                        << static_cast<int>(nanoseconds_elapsed_since_last_primitive * SECONDS_PER_NANOSECOND);
                 }
 
-                direct_control_ = *primitive_executor_.stepPrimitive();
+                direct_control_ =
+                    *primitive_executor_.stepPrimitive(primitive_executor_status_);
             }
 
             thunderloop_status_.set_primitive_executor_step_time_ms(
@@ -344,6 +338,8 @@ Thunderloop::~Thunderloop() {}
             *(robot_status_.mutable_jetson_status())         = jetson_status_;
             *(robot_status_.mutable_network_status())        = network_status_;
             *(robot_status_.mutable_chipper_kicker_status()) = chipper_kicker_status_;
+            *(robot_status_.mutable_primitive_executor_status()) =
+                primitive_executor_status_;
 
             // Update Redis
             redis_client_->setNoCommit(ROBOT_BATTERY_VOLTAGE_REDIS_KEY,
@@ -354,9 +350,6 @@ Thunderloop::~Thunderloop() {}
         }
 
         auto loop_duration_ns = getNanoseconds(iteration_time);
-        auto loop_duration_ms = loop_duration_ns / NANOSECONDS_PER_MILLISECOND;
-        auto total_loop_duration_ms = getMilliseconds(total_iteration_time);
-        double frequency = 1.0 / (static_cast<double>(total_loop_duration_ms) / MILLISECONDS_PER_SECOND);
         thunderloop_status_.set_iteration_time_ms(loop_duration_ns /
                                                   NANOSECONDS_PER_MILLISECOND);
 
@@ -367,12 +360,6 @@ Thunderloop::~Thunderloop() {}
         // Calculate next shot taking into account how long this iteration took
         next_shot.tv_nsec += interval - static_cast<long int>(loop_duration_ns);
         timespecNorm(next_shot);
-
-        LOG(PLOTJUGGLER) << *createPlotJugglerValue({
-                                                            {"loop_duration_no_sleep", (loop_duration_ms)},
-                                                            {"total_loop_duration", total_loop_duration_ms},
-                                                            {"frequency", frequency}
-                                                    });
     }
 }
 

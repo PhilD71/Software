@@ -18,9 +18,12 @@ py_library(
         "//software/simulated_tests:tbots_test_runner",
         "//software/simulated_tests:validation",
         "//software/thunderscope",
-        "//software/thunderscope:binary_context_managers",
         "//software/thunderscope:constants",
+        "//software/thunderscope:estop_helpers",
         "//software/thunderscope:robot_communication",
+        "//software/thunderscope/binary_context_managers:full_system",
+        "//software/thunderscope/binary_context_managers:game_controller",
+        "//software/thunderscope/binary_context_managers:simulator",
         "//software/thunderscope/replay:proto_logger",
     ],
 )
@@ -47,25 +50,6 @@ py_test(
     name = "pivot_kick_field_test",
     srcs = [
         "pivot_kick_field_test.py",
-    ],
-    # TODO (#2619) Remove tag to run in parallel
-    tags = [
-        "exclusive",
-    ],
-    deps = [
-        "//software/field_tests:field_test_fixture",
-        "//software/simulated_tests:simulated_test_fixture",
-        "//software/simulated_tests:tbots_test_runner",
-        "//software/simulated_tests:validation",
-        requirement("pytest"),
-    ],
-)
-
-
-py_test(
-    name = "square_test",
-    srcs = [
-        "square_test.py",
     ],
     # TODO (#2619) Remove tag to run in parallel
     tags = [

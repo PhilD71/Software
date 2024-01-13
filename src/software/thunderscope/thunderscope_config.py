@@ -16,6 +16,7 @@ from software.thunderscope.thunderscope_types import (
 import pyqtgraph
 import signal
 import qdarktheme
+import os
 from qt_material import apply_stylesheet, list_themes
 
 
@@ -33,12 +34,12 @@ class TScopeConfig:
         self,
         proto_unix_io_map: Dict[ProtoUnixIOTypes, ProtoUnixIO],
         tabs: Sequence[TScopeTab],
-    ):
+    ) -> None:
         self.proto_unix_io_map = proto_unix_io_map
         self.tabs = tabs
 
 
-def initialize_application():
+def initialize_application() -> None:
     """
     Initializes a QApplication
 
@@ -54,21 +55,9 @@ def initialize_application():
     apply_stylesheet(app, theme="dark_blue.xml")
 
 
-def configure_cost_vis(proto_unix_io):
-    """
-    Returns Widget Data for the Cost Visualization Widget
-    :param proto_unix_io: the proto unix io to configure the widget with
-    :return: the widget data
-    """
-    return TScopeWidget(
-        name="Cost Visualization",
-        widget=setup_cost_visualization_widget(**{"proto_unix_io": proto_unix_io}),
-        anchor="Field",
-        position="right",
-    )
-
-
-def configure_robot_view_fullsystem(fullsystem_proto_unix_io):
+def configure_robot_view_fullsystem(
+    fullsystem_proto_unix_io: ProtoUnixIO,
+) -> TScopeWidget:
     """
     Returns Widget Data for the Robot View Widget for FullSystem
     :param fullsystem_proto_unix_io: the proto unix io to configure the widget with
@@ -91,7 +80,9 @@ def configure_robot_view_fullsystem(fullsystem_proto_unix_io):
     )
 
 
-def configure_robot_view_diagnostics(diagnostics_proto_unix_io):
+def configure_robot_view_diagnostics(
+    diagnostics_proto_unix_io: ProtoUnixIO,
+) -> TScopeWidget:
     """
     Returns Widget Data for the Robot View Widget for Diagnostics
     :return: the widget data
@@ -129,14 +120,14 @@ def configure_estop(proto_unix_io):
 
 
 def configure_base_fullsystem(
-    full_system_proto_unix_io,
-    sim_proto_unix_io,
-    friendly_colour_yellow,
-    replay=False,
-    replay_log=None,
-    visualization_buffer_size=5,
-    extra_widgets=[],
-):
+    full_system_proto_unix_io: ProtoUnixIO,
+    sim_proto_unix_io: ProtoUnixIO,
+    friendly_colour_yellow: bool,
+    replay: bool = False,
+    replay_log: os.PathLike = None,
+    visualization_buffer_size: int = 5,
+    extra_widgets: List[TScopeWidget] = [],
+) -> list:
     """
     Returns a list of widget data for a FullSystem tab
     along with any extra widgets passed in
@@ -154,7 +145,7 @@ def configure_base_fullsystem(
     return [
         TScopeWidget(
             name="Field",
-            widget=setup_field_widget(
+            widget=setup_gl_widget(
                 **{
                     "replay": replay,
                     "replay_log": replay_log,
@@ -184,6 +175,14 @@ def configure_base_fullsystem(
             position="above",
         ),
         TScopeWidget(
+            name="Error Log",
+            widget=setup_robot_error_log_view_widget(
+                **{"proto_unix_io": full_system_proto_unix_io}
+            ),
+            position="below",
+            anchor="Logs",
+        ),
+        TScopeWidget(
             name="Referee Info",
             widget=setup_referee_info(**{"proto_unix_io": full_system_proto_unix_io}),
             anchor="Field",
@@ -211,12 +210,17 @@ def configure_base_fullsystem(
     ] + extra_widgets
 
 
-def configure_base_diagnostics(diagnostics_proto_unix_io, extra_widgets=[]):
+def configure_base_diagnostics(
+    diagnostics_proto_unix_io: ProtoUnixIO,
+    current_proto_unix_io: ProtoUnixIO,
+    extra_widgets: List[TScopeWidget] = [],
+) -> list:
     """
     Returns a list of widget data for a Diagnostics tab
     along with any extra widgets passed in
 
     :param diagnostics_proto_unix_io: the proto unix io for diagnostics
+    :param current_proto_unix_io: the current fullsystem proto unix io if it is running
     :param extra_widgets: a list of additional widget data to append
     :return: list of widget data for Diagnostics
     """
@@ -224,6 +228,14 @@ def configure_base_diagnostics(diagnostics_proto_unix_io, extra_widgets=[]):
         TScopeWidget(
             name="Logs",
             widget=setup_log_widget(**{"proto_unix_io": diagnostics_proto_unix_io}),
+        ),
+        TScopeWidget(
+            name="Error Log",
+            widget=setup_robot_error_log_view_widget(
+                **{"proto_unix_io": current_proto_unix_io}
+            ),
+            position="below",
+            anchor="Logs",
         ),
         TScopeWidget(
             name="Drive and Dribbler",
@@ -249,16 +261,14 @@ def configure_base_diagnostics(diagnostics_proto_unix_io, extra_widgets=[]):
 
 
 def configure_two_ai_gamecontroller_view(
-    visualization_buffer_size=5, cost_visualization=False
-):
+    visualization_buffer_size: int = 5,
+) -> TScopeConfig:
     """
     Constructs the Thunderscope Config for a view with 2 FullSystem tabs (Blue and Yellow)
     And 1 Gamecontroller tab
 
     :param visualization_buffer_size: The size of the visualization buffer.
             Increasing this will increase smoothness but will be less realtime.
-    :param cost_visualization: True if cost visualization widget should be enabled
-                                False if not
     :return: the Thunderscope Config for this view
     """
     proto_unix_io_map = {
@@ -281,11 +291,7 @@ def configure_two_ai_gamecontroller_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=False,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.BLUE])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             ),
             TScopeQTTab(
@@ -298,11 +304,7 @@ def configure_two_ai_gamecontroller_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=True,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.YELLOW])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             ),
             TScopeWebTab(
@@ -315,12 +317,11 @@ def configure_two_ai_gamecontroller_view(
 
 
 def configure_simulated_test_view(
-    simulator_proto_unix_io,
-    blue_full_system_proto_unix_io,
-    yellow_full_system_proto_unix_io,
-    visualization_buffer_size=5,
-    cost_visualization=False,
-):
+    simulator_proto_unix_io: ProtoUnixIO,
+    blue_full_system_proto_unix_io: ProtoUnixIO,
+    yellow_full_system_proto_unix_io: ProtoUnixIO,
+    visualization_buffer_size: int = 5,
+) -> TScopeConfig:
     """
     Constructs the Thunderscope Config for simulated tests
     A view with 2 FullSystem tabs (Blue and Yellow)
@@ -331,8 +332,6 @@ def configure_simulated_test_view(
     :param yellow_full_system_proto_unix_io: the proto unix io for the yellow fullsystem
     :param visualization_buffer_size: The size of the visualization buffer.
             Increasing this will increase smoothness but will be less realtime.
-    :param cost_visualization: True if cost visualization widget should be enabled
-                                False if not
     :return: the Thunderscope Config for this view
     """
     proto_unix_io_map = {
@@ -355,11 +354,7 @@ def configure_simulated_test_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=False,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.BLUE])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             ),
             TScopeQTTab(
@@ -372,11 +367,7 @@ def configure_simulated_test_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=True,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.YELLOW])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             ),
         ],
@@ -384,13 +375,12 @@ def configure_simulated_test_view(
 
 
 def configure_field_test_view(
-    simulator_proto_unix_io,
-    blue_full_system_proto_unix_io,
-    yellow_full_system_proto_unix_io,
-    visualization_buffer_size=5,
-    cost_visualization=False,
-    yellow_is_friendly=False,
-):
+    simulator_proto_unix_io: ProtoUnixIO,
+    blue_full_system_proto_unix_io: ProtoUnixIO,
+    yellow_full_system_proto_unix_io: ProtoUnixIO,
+    visualization_buffer_size: int = 5,
+    yellow_is_friendly: bool = False,
+) -> TScopeConfig:
     """
     Constructs the Thunderscope Config for field tests
     A view with 2 FullSystem tabs (Blue and Yellow)
@@ -401,8 +391,6 @@ def configure_field_test_view(
     :param yellow_full_system_proto_unix_io: the proto unix io for the yellow fullsystem
     :param visualization_buffer_size: The size of the visualization buffer.
             Increasing this will increase smoothness but will be less realtime.
-    :param cost_visualization: True if cost visualization widget should be enabled
-                                False if not
     :return: the Thunderscope Config for this view
     """
     proto_unix_io_map = {
@@ -428,11 +416,7 @@ def configure_field_test_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=True,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.YELLOW])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             )
         ]
@@ -446,11 +430,7 @@ def configure_field_test_view(
                     sim_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.SIM],
                     friendly_colour_yellow=False,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.BLUE])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             )
         ]
@@ -459,22 +439,19 @@ def configure_field_test_view(
 
 
 def configure_replay_view(
-    blue_replay_log,
-    yellow_replay_log,
-    visualization_buffer_size=5,
-    cost_visualization=False,
-):
+    blue_replay_log: os.PathLike,
+    yellow_replay_log: os.PathLike,
+    visualization_buffer_size: int = 5,
+) -> TScopeConfig:
     """
     Constructs the Thunderscope Config for a replay view
     Can have 1 or 2 FullSystem tabs but no GameController tab
-    Field widget will now have Player controls
+    GLWidget will now have Player controls
 
     :param blue_replay_log: the file path for the blue replay log
     :param yellow_replay_log: the file path for the yellow replay log
     :param visualization_buffer_size: The size of the visualization buffer.
             Increasing this will increase smoothness but will be less realtime.
-    :param cost_visualization: True if cost visualization widget should be enabled
-                                False if not
     :return: the Thunderscope Config for this view
     """
     proto_unix_io_map = {ProtoUnixIOTypes.SIM: ProtoUnixIO()}
@@ -496,11 +473,7 @@ def configure_replay_view(
                     replay=True,
                     replay_log=blue_replay_log,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.BLUE])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             )
         )
@@ -520,11 +493,7 @@ def configure_replay_view(
                     replay=True,
                     replay_log=yellow_replay_log,
                     visualization_buffer_size=visualization_buffer_size,
-                    extra_widgets=[
-                        configure_cost_vis(proto_unix_io_map[ProtoUnixIOTypes.YELLOW])
-                    ]
-                    if cost_visualization
-                    else [],
+                    extra_widgets=[],
                 ),
             )
         )
@@ -533,12 +502,11 @@ def configure_replay_view(
 
 
 def configure_ai_or_diagnostics(
-    load_blue,
-    load_yellow,
-    load_diagnostics,
-    visualization_buffer_size=5,
-    cost_visualization=False,
-):
+    load_blue: bool,
+    load_yellow: bool,
+    load_diagnostics: bool,
+    visualization_buffer_size: int = 5,
+) -> TScopeConfig:
     """
     Constructs a view with one of:
         - 1 Fullsystem (Blue or Yellow)
@@ -550,8 +518,6 @@ def configure_ai_or_diagnostics(
     :param load_diagnostics: if diagnostics should be loaded
     :param visualization_buffer_size: The size of the visualization buffer.
             Increasing this will increase smoothness but will be less realtime.
-    :param cost_visualization: True if cost visualization widget should be enabled
-                                False if not
     :return: the Thunderscope Config for this view
     """
 
@@ -561,10 +527,7 @@ def configure_ai_or_diagnostics(
         :param proto_unix_io: the proto unix io to configure widgets with
         :return: list of widget data for the extra widgets
         """
-        extra_widgets = (
-            [configure_cost_vis(proto_unix_io)] if cost_visualization else []
-        )
-        extra_widgets.append(configure_robot_view_fullsystem(proto_unix_io))
+        extra_widgets = [configure_robot_view_fullsystem(proto_unix_io)]
         extra_widgets.append(configure_estop(proto_unix_io))
         return extra_widgets
 
@@ -629,6 +592,15 @@ def configure_ai_or_diagnostics(
             proto_unix_io_map[ProtoUnixIOTypes.CURRENT] = proto_unix_io_map[
                 ProtoUnixIOTypes.DIAGNOSTICS
             ]
+        diagnostics_extra_widgets = (
+            []
+            if load_blue or load_yellow
+            else [
+                configure_robot_view_diagnostics(
+                    proto_unix_io_map[ProtoUnixIOTypes.DIAGNOSTICS]
+                ),
+            ]
+        )
         tabs.append(
             TScopeQTTab(
                 name="Robot Diagnostics",
@@ -637,15 +609,11 @@ def configure_ai_or_diagnostics(
                     diagnostics_proto_unix_io=proto_unix_io_map[
                         ProtoUnixIOTypes.DIAGNOSTICS
                     ],
+                    current_proto_unix_io=proto_unix_io_map[ProtoUnixIOTypes.CURRENT],
                     extra_widgets=[
-                        configure_estop(
-                            proto_unix_io_map[ProtoUnixIOTypes.DIAGNOSTICS]
-                        ),
-                    ] + ([
-                        configure_robot_view_diagnostics(
-                            proto_unix_io_map[ProtoUnixIOTypes.DIAGNOSTICS]
-                        ),
-                    ] if (not load_blue and not load_yellow) else []),
+                        configure_estop(proto_unix_io_map[ProtoUnixIOTypes.DIAGNOSTICS])
+                    ]
+                    + diagnostics_extra_widgets,
                 ),
             )
         )

@@ -1,20 +1,25 @@
-import os
-import time
-import threading
 import argparse
 import numpy
-
+import os
+import threading
+import time
 from software.thunderscope.thread_safe_buffer import ThreadSafeBuffer
 from software.thunderscope.thunderscope import Thunderscope
 from software.thunderscope.binary_context_managers import *
-from proto.message_translation import tbots_protobuf
-import software.python_bindings as cpp_bindings
+from proto.import_all_protos import *
+import software.python_bindings as tbots_cpp
 from software.py_constants import *
+import proto.message_translation.tbots_protobuf as tbots_protobuf
 from software.thunderscope.robot_communication import RobotCommunication
 from software.thunderscope.replay.proto_logger import ProtoLogger
-from software.thunderscope.constants import EstopMode
+from software.thunderscope.constants import EstopMode, ProtoUnixIOTypes
+from software.thunderscope.estop_helpers import get_estop_config
 import software.thunderscope.thunderscope_config as config
-from software.thunderscope.constants import ProtoUnixIOTypes
+
+from software.thunderscope.binary_context_managers.full_system import FullSystem
+from software.thunderscope.binary_context_managers.simulator import Simulator
+from software.thunderscope.binary_context_managers.game_controller import Gamecontroller
+
 
 NUM_ROBOTS = 6
 SIM_TICK_RATE_MS = 16
@@ -140,19 +145,11 @@ if __name__ == "__main__":
         help="set realism flag to use realistic config",
     )
     parser.add_argument(
-        "--estop_path", action="store", type=str, help="Path to the Estop",
-    )
-    parser.add_argument(
         "--estop_baudrate",
         action="store",
         type=int,
         default=115200,
         help="Estop Baudrate",
-    )
-    parser.add_argument(
-        "--cost_visualization",
-        action="store_true",
-        help="show pass cost visualization layer",
     )
     estop_group = parser.add_mutually_exclusive_group()
     estop_group.add_argument(
@@ -162,7 +159,7 @@ if __name__ == "__main__":
         help="Allows the use of the spacebar as an estop instead of a physical one",
     )
     estop_group.add_argument(
-        "--disable_estop",
+        "--disable_communication",
         action="store_true",
         default=False,
         help="Disables checking for estop plugged in (ONLY USE FOR LOCAL TESTING)",
@@ -190,7 +187,7 @@ if __name__ == "__main__":
 
         tscope = Thunderscope(
             config=config.configure_two_ai_gamecontroller_view(
-                args.visualization_buffer_size, args.cost_visualization
+                args.visualization_buffer_size
             ),
             layout_path=args.layout,
         )
@@ -241,7 +238,6 @@ if __name__ == "__main__":
             args.run_yellow,
             args.run_diagnostics,
             args.visualization_buffer_size,
-            args.cost_visualization,
         )
         tscope = Thunderscope(config=tscope_config, layout_path=args.layout,)
 
@@ -261,18 +257,16 @@ if __name__ == "__main__":
         # else, it will be the diagnostics proto
         current_proto_unix_io = tscope.proto_unix_io_map[ProtoUnixIOTypes.CURRENT]
 
-        estop_mode = EstopMode.PHYSICAL_ESTOP
-        if args.keyboard_estop:
-            estop_mode = EstopMode.KEYBOARD_ESTOP
-        if args.disable_estop:
-            estop_mode = EstopMode.DISABLE_ESTOP
+        estop_mode, estop_path = get_estop_config(
+            args.keyboard_estop, args.disable_communication
+        )
 
         with RobotCommunication(
             current_proto_unix_io=current_proto_unix_io,
             multicast_channel=getRobotMulticastChannel(args.channel),
             interface=args.interface,
             estop_mode=estop_mode,
-            estop_path=args.estop_path,
+            estop_path=estop_path,
         ) as robot_communication:
 
             if estop_mode == EstopMode.KEYBOARD_ESTOP:
@@ -318,10 +312,7 @@ if __name__ == "__main__":
     elif args.blue_log or args.yellow_log:
         tscope = Thunderscope(
             config=config.configure_replay_view(
-                args.blue_log,
-                args.yellow_log,
-                args.visualization_buffer_size,
-                args.cost_visualization,
+                args.blue_log, args.yellow_log, args.visualization_buffer_size,
             ),
             layout_path=args.layout,
         )
@@ -339,12 +330,12 @@ if __name__ == "__main__":
 
         tscope = Thunderscope(
             config=config.configure_two_ai_gamecontroller_view(
-                args.visualization_buffer_size, args.cost_visualization
+                args.visualization_buffer_size
             ),
             layout_path=args.layout,
         )
 
-        def __async_sim_ticker(tick_rate_ms):
+        def __async_sim_ticker(tick_rate_ms: int) -> None:
             """Setup the world and tick simulation forever
 
             :param tick_rate_ms: The tick rate of the simulation
@@ -362,15 +353,15 @@ if __name__ == "__main__":
                 if not world_state_received:
                     world_state = tbots_protobuf.create_world_state(
                         blue_robot_locations=[
-                            cpp_bindings.Point(-3, y)
+                            tbots_cpp.Point(-3, y)
                             for y in numpy.linspace(-2, 2, NUM_ROBOTS)
                         ],
                         yellow_robot_locations=[
-                            cpp_bindings.Point(3, y)
+                            tbots_cpp.Point(3, y)
                             for y in numpy.linspace(-2, 2, NUM_ROBOTS)
                         ],
-                        ball_location=cpp_bindings.Point(0, 0),
-                        ball_velocity=cpp_bindings.Vector(0, 0),
+                        ball_location=tbots_cpp.Point(0, 0),
+                        ball_velocity=tbots_cpp.Vector(0, 0),
                     )
                     tscope.proto_unix_io_map[ProtoUnixIOTypes.SIM].send_proto(
                         WorldState, world_state

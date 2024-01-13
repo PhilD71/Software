@@ -1,4 +1,4 @@
-import software.python_bindings as tbots
+import software.python_bindings as tbots_cpp
 from proto.import_all_protos import *
 
 from software.simulated_tests.validation import (
@@ -12,14 +12,9 @@ class RobotEntersRegion(Validation):
 
     """Checks if a Robot enters any of the provided regions."""
 
-    def __init__(self, regions=None, num_robots=1):
-        """
-
-        :param regions: regions on the field
-        :param num_robots: the number of robots to check
-        """
+    def __init__(self, regions=None):
         self.regions = regions if regions else []
-        self.num_robots = num_robots
+        self.passing_robot = None
 
     def get_validation_status(self, world) -> ValidationStatus:
         """Checks if _any_ robot enters the provided regions
@@ -28,16 +23,15 @@ class RobotEntersRegion(Validation):
         :returns: FAILING until a robot enters any of the regions
                   PASSING when a robot enters
         """
-        num_robots = self.num_robots
         for region in self.regions:
             for robot in world.friendly_team.team_robots:
-                if tbots.contains(
-                    region, tbots.createPoint(robot.current_state.global_position)
+                if tbots_cpp.contains(
+                    region, tbots_cpp.createPoint(robot.current_state.global_position)
                 ):
-                    num_robots -= 1
-                    if num_robots == 0:
-                        return ValidationStatus.PASSING
+                    self.passing_robot = robot
+                    return ValidationStatus.PASSING
 
+        self.passing_robot = None
         return ValidationStatus.FAILING
 
     def get_validation_geometry(self, world) -> ValidationGeometry:
@@ -79,8 +73,8 @@ class NumberOfRobotsEntersRegion(Validation):
         """
         # Update the map with latest robot status
         for robot in world.friendly_team.team_robots:
-            self.robot_in_zone[robot.id] = tbots.contains(
-                self.region, tbots.createPoint(robot.current_state.global_position)
+            self.robot_in_zone[robot.id] = tbots_cpp.contains(
+                self.region, tbots_cpp.createPoint(robot.current_state.global_position)
             )
         # Check if there are at least req_robot_cnt number of robots in zone
         curr_cnt = 0
